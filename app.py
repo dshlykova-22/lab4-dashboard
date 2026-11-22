@@ -10,9 +10,9 @@ from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 
-# ==========================================
+
 # 1. ЗАГРУЗКА И ПОДГОТОВКА ДАННЫХ
-# ==========================================
+
 st.set_page_config(page_title="Лабораторная работа №4", layout="wide")
 
 @st.cache_data
@@ -24,30 +24,30 @@ def load_and_prepare_data():
 
 df_full = load_and_prepare_data()
 
-# Создаем данные для K-Means (без Тель-Авива, как в твоей ЛР №2)
+#данные для K-Means (без Тель-Авива)
 df_km = df_full.drop('Tel_Aviv', errors='ignore').copy()
 
-# Масштабирование
+#vасштабирование
 scaler_full = StandardScaler()
 X_scaled_full = scaler_full.fit_transform(df_full[['Work', 'Price', 'Salary']])
 
 scaler_km = StandardScaler()
 X_scaled_km = scaler_km.fit_transform(df_km[['Work', 'Price', 'Salary']])
 
-# ==========================================
+
 # 2. ИНТЕРФЕЙС: БОКОВАЯ ПАНЕЛЬ
-# ==========================================
+
 st.title("🌍 Разработка интерактивного аналитического дашборда")
 st.markdown("Объединение результатов лабораторных работ №1-3. Выполнила: Шлыкова Д.В., 563316.")
 
 st.sidebar.header("⚙️ Настройки")
 algorithm = st.sidebar.selectbox(
-    "Выбор алгоритма кластеризации:",
-    ('Иерархический (Ward)', 'K-Means', 'DBSCAN')
+    "Выбор метода кластеризации:",
+    ('Иерархическая кластеризация', 'K-Means', 'DBSCAN')
 )
 
-# Интерактивные ползунки для параметров
-if algorithm in ['Иерархический (Ward)', 'K-Means']:
+#интерактивные ползунки для параметров
+if algorithm in ['Иерархическая кластеризация', 'K-Means']:
     n_clusters = st.sidebar.slider("Количество кластеров (K):", min_value=2, max_value=8, value=4)
 elif algorithm == 'DBSCAN':
     st.sidebar.markdown("---")
@@ -55,9 +55,9 @@ elif algorithm == 'DBSCAN':
     eps_val = st.sidebar.slider("Эпсилон (eps):", min_value=0.1, max_value=2.0, value=0.75, step=0.05)
     min_samples_val = st.sidebar.slider("Мин. точек (min_samples):", min_value=2, max_value=10, value=4)
 
-# ==========================================
+
 # 3. ОБУЧЕНИЕ МОДЕЛЕЙ И РАСЧЕТ МЕТРИК
-# ==========================================
+
 def evaluate_clustering(X, labels, name):
     mask = labels != -1
     X_clean = X[mask] if name == 'DBSCAN' else X
@@ -66,19 +66,19 @@ def evaluate_clustering(X, labels, name):
     n_clusters_val = len(set(labels_clean))
     
     if n_clusters_val < 2:
-        return {'Алгоритм': name, 'Кластеров': n_clusters_val, 'Шум': len(labels) - len(labels_clean) if name == 'DBSCAN' else 0, 'Silhouette': np.nan, 'Davies-Bouldin': np.nan, 'Calinski-Harabasz': np.nan}
+        return {'Алгоритм': name, 'Кластеров': n_clusters_val, 'Шум': len(labels) - len(labels_clean) if name == 'DBSCAN' else 0, 'Коэффициент силуэта': np.nan, 'Индекс Дэвиса-Болдина': np.nan, 'Индекс Калински-Харабаса': np.nan}
 
     return {
         'Алгоритм': name,
         'Кластеров': n_clusters_val,
         'Шум': len(labels) - len(labels_clean) if name == 'DBSCAN' else 0,
-        'Silhouette': round(silhouette_score(X_clean, labels_clean), 3),
-        'Davies-Bouldin': round(davies_bouldin_score(X_clean, labels_clean), 3),
-        'Calinski-Harabasz': round(calinski_harabasz_score(X_clean, labels_clean), 3)
+        'Коэффициент силуэта': round(silhouette_score(X_clean, labels_clean), 3),
+        'Индекс Дэвиса-Болдина': round(davies_bouldin_score(X_clean, labels_clean), 3),
+        'Индекс Калински-Харабаса': round(calinski_harabasz_score(X_clean, labels_clean), 3)
     }
 
-# Обучение
-hier = AgglomerativeClustering(n_clusters=n_clusters if algorithm == 'Иерархический (Ward)' else 4, linkage='ward')
+#обучение
+hier = AgglomerativeClustering(n_clusters=n_clusters if algorithm == 'Иерархическая кластеризация)' else 4, linkage='ward')
 hier_labels = hier.fit_predict(X_scaled_full)
 
 kmeans = KMeans(n_clusters=n_clusters if algorithm == 'K-Means' else 4, random_state=42, n_init=10)
@@ -87,21 +87,21 @@ kmeans_labels = kmeans.fit_predict(X_scaled_km)
 dbscan = DBSCAN(eps=eps_val if algorithm == 'DBSCAN' else 0.75, min_samples=min_samples_val if algorithm == 'DBSCAN' else 4)
 dbscan_labels = dbscan.fit_predict(X_scaled_full)
 
-# Сбор метрик
+#сбор метрик
 metrics_df = pd.DataFrame([
-    evaluate_clustering(X_scaled_full, hier_labels, 'Иерархический (Ward)'),
+    evaluate_clustering(X_scaled_full, hier_labels, 'Иерархическая кластеризация'),
     evaluate_clustering(X_scaled_km, kmeans_labels, 'K-Means'),
     evaluate_clustering(X_scaled_full, dbscan_labels, 'DBSCAN')
 ])
 
-# Выбор активных данных
+#выбор активных данных
 if algorithm == 'K-Means':
     df_plot = df_km.copy()
     current_labels = kmeans_labels
     current_X = X_scaled_km
 else:
     df_plot = df_full.copy()
-    current_labels = hier_labels if algorithm == 'Иерархический (Ward)' else dbscan_labels
+    current_labels = hier_labels if algorithm == 'Иерархическая кластеризация' else dbscan_labels
     current_X = X_scaled_full
 
 df_plot['Cluster'] = current_labels
@@ -115,18 +115,18 @@ if algorithm != 'DBSCAN':
 else:
     df_filtered = df_plot
 
-# ==========================================
+
 # 4. ВКЛАДКИ ДАШБОРДА
-# ==========================================
+
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Общие данные", 
     "🎯 Визуализация метода", 
-    "📋 Сравнение алгоритмов", 
+    "📋 Сравнение методов", 
     "📈 Характеристики групп", 
     "📝 Выводы"
 ])
 
-# --- ВКЛАДКА 1: ДАННЫЕ ---
+# ВКЛАДКА 1: ДАННЫЕ 
 with tab1:
     st.subheader("Общая характеристика исходных данных")
     col1, col2 = st.columns([1, 2])
@@ -136,15 +136,15 @@ with tab1:
         st.dataframe(df_full.head(), use_container_width=True)
     with col2:
         # Ящик с усами (Boxplot) из ЛР №2
-        fig_box = px.box(df_full, y=['Work', 'Price', 'Salary'], title="Проверка на выбросы (Ящик с усами)")
+        fig_box = px.box(df_full, y=['Work', 'Price', 'Salary'], title="Проверка на выбросы (Ящик с усами, Boxplot)")
         st.plotly_chart(fig_box, use_container_width=True)
 
-# --- ВКЛАДКА 2: ВИЗУАЛИЗАЦИЯ (Дендрограмма, Центроиды, k-расстояния) ---
+# ВКЛАДКА 2: ВИЗУАЛИЗАЦИЯ (Дендрограмма, Центроиды, k-расстояния) 
 with tab2:
     st.subheader(f"Результаты: {algorithm}")
     
     # 1. Дендрограмма (ЛР №1)
-    if algorithm == 'Иерархический (Ward)':
+    if algorithm == 'Иерархическая кластеризация':
         st.markdown("#### Дендрограмма (Метод Уорда)")
         fig_dendro, ax = plt.subplots(figsize=(12, 4))
         sch.dendrogram(sch.linkage(X_scaled_full, method='ward'), labels=df_full.index.tolist(), leaf_rotation=90, ax=ax)
@@ -155,26 +155,26 @@ with tab2:
 
     # 2. Центроиды (ЛР №2)
     elif algorithm == 'K-Means':
-        st.markdown("#### Кластеры K-Means с центроидами (Тель-Авив исключен)")
+        st.markdown("#### Кластеры K-Means с центроидами")
         fig_km = px.scatter(df_plot, x='Price', y='Salary', color='Cluster_Label', hover_name=df_plot.index, labels={'Price': 'Индекс цен', 'Salary': 'Индекс зарплат'})
         # Добавляем центроиды
         centroids_orig = scaler_km.inverse_transform(kmeans.cluster_centers_)
         for i, c in enumerate(centroids_orig):
-            fig_km.add_trace(go.Scatter(x=[c[1]], y=[c[2]], mode='markers', marker=dict(symbol='x', size=15, color='black', linewidth=2), name=f'Центр {i}'))
+            fig_km.add_trace(go.Scatter(x=[c[1]], y=[c[2]], mode='markers', marker=dict(symbol='x', size=15, color='black', line=dict(color='black', width=2)), name=f'Центр {i+1}'))
         st.plotly_chart(fig_km, use_container_width=True)
 
     # 3. График k-расстояний (ЛР №3)
     elif algorithm == 'DBSCAN':
-        st.markdown("#### График k-расстояний (для выбора eps)")
+        st.markdown("#### График k-расстояний (для выбора эпсилон)")
         neighbors = NearestNeighbors(n_neighbors=min_samples_val)
         distances, _ = neighbors.fit(X_scaled_full).kneighbors(X_scaled_full)
         distances = np.sort(distances[:, min_samples_val-1], axis=0)
-        fig_k_dist = px.line(y=distances, title="k-расстояния", labels={'y': 'Расстояние', 'index': 'Точки'})
-        fig_k_dist.add_hline(y=eps_val, line_dash="dash", line_color="red", annotation_text=f"Выбранный eps={eps_val}")
+        fig_k_dist = px.line(y=distances, title="k-расстояния", labels={'y': 'Расстояние', 'Индекс': 'Точки'})
+        fig_k_dist.add_hline(y=eps_val, line_dash="dash", line_color="red", annotation_text=f"Выбранный эпсилон={eps_val}")
         st.plotly_chart(fig_k_dist, use_container_width=True)
 
-    # 4. Общий 3D-график (Твой оригинальный)
-    st.markdown("#### Пространство признаков (3D)")
+    # 4. Общий 3D-график 
+    st.markdown("#### 3D визуализация")
     fig_3d = px.scatter_3d(df_filtered, x='Price', y='Salary', z='Work', color='Cluster_Label', hover_name=df_filtered.index, 
                            labels={'Price': 'Индекс цен', 'Salary': 'Индекс зарплат', 'Work': 'Рабочие часы'}, 
                            color_discrete_map={'Шум (выброс)': 'black'})
@@ -182,17 +182,17 @@ with tab2:
     fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=0), height=600)
     st.plotly_chart(fig_3d, use_container_width=True)
 
-# --- ВКЛАДКА 3: СРАВНЕНИЕ ---
+# ВКЛАДКА 3: СРАВНЕНИЕ
 with tab3:
     st.subheader("Сравнительная таблица метрик")
     st.markdown("""
-    *   **Silhouette Score:** от -1 до 1. Чем ближе к 1, тем лучше объекты разделены.
-    *   **Davies-Bouldin Index:** Чем **ниже** значение, тем лучше.
-    *   **Calinski-Harabasz Index:** Чем **выше**, тем лучше (плотные кластеры).
+    *   **Коэффициент силуэта:** от -1 до 1. Чем ближе к 1, тем лучше объекты разделены. Показывает, насколько объект похож на свой собственный кластер по сравнению с соседними.
+    *   **Индекс Дэвиса-Болдина:** Чем **ниже** значение, тем лучше (идеал - 0). Это отношение расстояния внутри кластера к расстоянию между кластерами.
+    *   **Индекс Калински-Харабаса:** Чем **выше**, тем лучше (плотные кластеры). Отношение межкластерной дисперсии к внутрикластерной.
     """)
     st.dataframe(metrics_df, use_container_width=True, hide_index=True)
 
-# --- ВКЛАДКА 4: ХАРАКТЕРИСТИКИ ГРУПП (С выбором конкретного кластера) ---
+# ВКЛАДКА 4: ХАРАКТЕРИСТИКИ ГРУПП (С выбором конкретного кластера) 
 with tab4:
     st.subheader(f"Анализ групп: {algorithm}")
     
@@ -205,57 +205,57 @@ with tab4:
         
     with col2:
         st.markdown("**Детальное изучение кластера:**")
-        # Требование ЛР 4: выбор отдельных кластеров для детального изучения
+        # выбор отдельных кластеров для детального изучения
         cluster_to_study = st.selectbox("Выберите кластер:", sorted([c for c in df_plot['Cluster'].unique() if c != -1]))
         st.write(f"Города в кластере {cluster_to_study}:")
         st.dataframe(df_plot[df_plot['Cluster'] == cluster_to_study][['Work', 'Price', 'Salary']], use_container_width=True)
 
-# --- ВКЛАДКА 5: ВЫВОДЫ ---
+#  ВКЛАДКА 5: ВЫВОДЫ 
 with tab5:
-    st.subheader("📝 Обоснование выбора алгоритма и итоговые выводы")
+    st.subheader("📝 Обоснование выбора наиболее подходящего алгоритма и выводы")
     
     st.markdown("""
-    В ходе выполнения лабораторных работ №1–3 и создания данного дашборда было проведено исследование экономических показателей 46 городов мира. 
-    Для сегментации данных были применены три принципиально разных алгоритма кластеризации. Опираясь на визуальный анализ, метрики качества (вкладка «Сравнение») и экономическую интерпретацию, можно сделать следующие выводы:
+    В ходе выполнения лабораторных работ №1–3 и создания дашборда было проведено исследование экономических показателей 46 городов мира. 
+    Для анализа данных были применены три метода кластеризации. Опираясь на визуальный анализ, метрики качества и экономическую интерпретацию, можно сделать следующие выводы по каждому методу:
     """)
 
     # Блок 1: Иерархический анализ
-    with st.expander("🔹 1. Иерархический анализ (Метод Уорда) — «Исследователь»", expanded=True):
+    with st.expander("🔹 1. Иерархический кластерный анализ (Метод Уорда), expanded=True):
         st.markdown("""
-        *   **Качество и структура:** Метод отлично справляется с поиском естественной структуры данных без необходимости заранее задавать количество кластеров. Дендрограмма наглядно показывает, как города объединяются в группы.
-        *   **Интерпретируемость:** Полученные 4 кластера легко интерпретируются экономически (сверхдорогие города, крупные мегаполисы, развивающиеся города, города с высокой нагрузкой).
+        *   **Качество и структура:** Метод справляется с поиском естественной структуры данных без необходимости заранее задавать количество кластеров. Дендрограмма демонстрирует, как города объединяются в группы.
+        *   **Интерпретируемость:** Полученные 4 кластера легко интерпретируются экономически (сверхдорогие города, крупные мегаполисы, развивающиеся города, города с высокой нагрузкой) (подробно было описано в Лаб №1).
         *   **Недостатки:** Алгоритм чувствителен к выбросам и строит кластеры преимущественно сферической формы. Из-за этого аномальные города (например, Цюрих или Женева) могут сильно искажать границы «обычных» кластеров.
         """)
 
     # Блок 2: K-Means
-    with st.expander("🔹 2. K-Means — «Математик»", expanded=True):
+    with st.expander("🔹 2. K-Means, expanded=True):
         st.markdown("""
-        *   **Качество и структура:** Показал высокую скорость работы и четкие, хорошо разделенные центры. Метод минимизирует евклидово расстояние до центроидов, деля пространство прямыми линиями. Из-за этого точки на границе (близкие по цене, но разные по зарплате) могут распределяться математически, а не визуально.
-        *   **Проблема выбросов:** Метод крайне чувствителен к аномалиям. В ЛР №2 было выявлено, что Тель-Авив (точка ~110 по цене, 40 по зарплате) «перетягивал» на себя центр кластера, размывая границы остальных групп. После его принудительного удаления качество кластеризации и четкость центроидов значительно выросли.
-        *   **Интерпретируемость:** Центроиды совпадают со средними значениями по группам, что дает очень четкое понимание «среднестатистического» города в каждом кластере.
+        *   **Качество и структура:** Показал хорошо разделенные центры. Метод минимизирует евклидово расстояние до центроидов, деля пространство прямыми линиями. Из-за этого точки на границе (близкие по цене, но разные по зарплате) могут распределяться математически, а не визуально.
+        *   **Проблема выбросов:** Метод крайне чувствителен к аномалиям. В Лаб №2 было выявлено, что Тель-Авив «перетягивал» на себя центр кластера, размывая границы остальных групп. После его удаления четкость центроидов выросла.
+        *   **Интерпретируемость:** Центроиды совпадают со средними значениями по группам.
         """)
 
     # Блок 3: DBSCAN
-    with st.expander("🔹 3. DBSCAN — «Детектор аномалий»", expanded=True):
+    with st.expander("🔹 3. DBSCAN , expanded=True):
         st.markdown("""
         *   **Качество и структура:** Наиболее устойчив к выбросам. Настройка параметров (eps и min_samples) с помощью графика k-расстояний позволила найти оптимальную плотность.
-        *   **Работа с шумом:** Алгоритм блестяще справился с задачей поиска уникальных городов. Он автоматически выделил объекты с уникальной экономикой (Гонконг, Женеву, Цюрих) в отдельный класс «Шум» (-1). Это позволяет не искажать статистику по основным группам.
+        *   **Работа с шумом:** Алгоритм справился с задачей поиска аномальных городов. Он автоматически выделил объекты с уникальной экономикой (Гонконг, Женеву, Цюрих) в отдельный класс «Шум» (-1), что позволило не искажать статистику по основным группам.
         *   **Недостатки:** Не требует задавать K, но сложен в настройке параметров. Если выбрать `eps` слишком маленьким — все станет шумом, если слишком большим — выбросы попадут в кластеры.
         """)
 
     st.markdown("---")
-    st.subheader("🏆 Итоговое обоснование выбора")
+    st.subheader("🏆 ИТОГИ")
     
     col1, col2 = st.columns(2)
     with col1:
-        st.success("**Для поиска закономерностей лучше подходит K-Means (с предварительной очисткой)**\n\n"
-                   "Если цель — понять общую экономическую структуру мира и получить четкие, интерпретируемые «профили» городов, K-Means выигрывает. Он дает плотные группы и понятные средние значения (при условии удаления экстремальных выбросов вроде Тель-Авива).")
+        st.success("**Для поиска закономерностей лучше подходит K-Means (с предварительной очисткой от аномалий)**\n\n"
+                   "Если цель — понять общую экономическую структуру мира и получить четкие, интерпретируемые «профили» городов, K-Means подходит. Он дает плотные группы и понятные средние значения.")
     
     with col2:
         st.info("**Для поиска аномалий и уникальных объектов — DBSCAN**\n\n"
-                "Если цель — найти города с уникальным укладом экономики, которые не вписываются в общие тренды, DBSCAN незаменим. Он не «притягивает за уши» уникальные точки к общим кластерам, а честно выделяет их в шум.")
+                "Если цель — найти города с уникальным укладом экономики, которые не вписываются в общие тренды, DBSCAN подходит больше.")
 
     st.markdown("""
     **Общий вывод по датасету:** 
-    Экономические показатели городов неоднородны. Наличие четко выраженных выбросов (городов-одиночек) говорит о том, что в реальном мире экономика не подчиняется строгим законам сферических кластеров. Поэтому комбинированный подход (K-Means для поиска базы + DBSCAN для поиска исключений) является наиболее качественным и обоснованным для данного набора данных.
+    Экономические показатели городов неоднородны. Наличие четко выраженных выбросов говорит о том, что в реальном мире экономика не подчиняется строгим законам сферических кластеров. Поэтому комбинированный подход является наиболее качественным и обоснованным.
     """)
