@@ -2,162 +2,230 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import scipy.cluster.hierarchy as sch
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
+from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 
-# --- 1. Загрузка и подготовка данных ---
+# ==========================================
+# 1. ЗАГРУЗКА И ПОДГОТОВКА ДАННЫХ
+# ==========================================
+st.set_page_config(page_title="Лабораторная работа №4", layout="wide")
+
 @st.cache_data
 def load_and_prepare_data():
-    # Загружаем датасет (он должен лежать в той же папке, что и app.py)
     df = pd.read_csv('Econom_Cities_data.csv', sep=';', decimal=',')
-    # Очистка от маркеров пропуска
     df = df.replace(-9999, np.nan).dropna()
     df = df.set_index('City')
-    
-    # Масштабирование
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(df)
-    
-    return df, X_scaled
+    return df
 
-df, X_scaled = load_and_prepare_data()
+df_full = load_and_prepare_data()
 
-# --- 2. Обучение моделей и расчет метрик ---
+# Создаем данные для K-Means (без Тель-Авива, как в твоей ЛР №2)
+df_km = df_full.drop('Tel_Aviv', errors='ignore').copy()
+
+# Масштабирование
+scaler_full = StandardScaler()
+X_scaled_full = scaler_full.fit_transform(df_full[['Work', 'Price', 'Salary']])
+
+scaler_km = StandardScaler()
+X_scaled_km = scaler_km.fit_transform(df_km[['Work', 'Price', 'Salary']])
+
+# ==========================================
+# 2. ИНТЕРФЕЙС: БОКОВАЯ ПАНЕЛЬ
+# ==========================================
+st.title("🌍 Разработка интерактивного аналитического дашборда")
+st.markdown("Объединение результатов лабораторных работ №1-3. Выполнила: Шлыкова Д.В., 563316.")
+
+st.sidebar.header("⚙️ Настройки")
+algorithm = st.sidebar.selectbox(
+    "Выбор алгоритма кластеризации:",
+    ('Иерархический (Ward)', 'K-Means', 'DBSCAN')
+)
+
+# Интерактивные ползунки для параметров
+if algorithm in ['Иерархический (Ward)', 'K-Means']:
+    n_clusters = st.sidebar.slider("Количество кластеров (K):", min_value=2, max_value=8, value=4)
+elif algorithm == 'DBSCAN':
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Подбор параметров DBSCAN**")
+    eps_val = st.sidebar.slider("Эпсилон (eps):", min_value=0.1, max_value=2.0, value=0.75, step=0.05)
+    min_samples_val = st.sidebar.slider("Мин. точек (min_samples):", min_value=2, max_value=10, value=4)
+
+# ==========================================
+# 3. ОБУЧЕНИЕ МОДЕЛЕЙ И РАСЧЕТ МЕТРИК
+# ==========================================
 def evaluate_clustering(X, labels, name):
-    # Для DBSCAN исключаем шум (-1) из расчета метрик
-    if name == 'DBSCAN':
-        mask = labels != -1
-        if mask.sum() < 2: # Если после удаления шума осталось < 2 точек
-            return {'Алгоритм': name, 'Кластеров': 0, 'Шум': len(labels), 'Silhouette': np.nan, 'Davies-Bouldin': np.nan, 'Calinski-Harabasz': np.nan}
-        X_clean = X[mask]
-        labels_clean = labels[mask]
-    else:
-        X_clean = X
-        labels_clean = labels
-
-    n_clusters = len(set(labels_clean))
+    mask = labels != -1
+    X_clean = X[mask] if name == 'DBSCAN' else X
+    labels_clean = labels[mask] if name == 'DBSCAN' else labels
     
-    if n_clusters < 2:
-        return {'Алгоритм': name, 'Кластеров': n_clusters, 'Шум': 0, 'Silhouette': np.nan, 'Davies-Bouldin': np.nan, 'Calinski-Harabasz': np.nan}
+    n_clusters_val = len(set(labels_clean))
+    
+    if n_clusters_val < 2:
+        return {'Алгоритм': name, 'Кластеров': n_clusters_val, 'Шум': len(labels) - len(labels_clean) if name == 'DBSCAN' else 0, 'Silhouette': np.nan, 'Davies-Bouldin': np.nan, 'Calinski-Harabasz': np.nan}
 
     return {
         'Алгоритм': name,
-        'Кластеров': n_clusters,
+        'Кластеров': n_clusters_val,
         'Шум': len(labels) - len(labels_clean) if name == 'DBSCAN' else 0,
         'Silhouette': round(silhouette_score(X_clean, labels_clean), 3),
         'Davies-Bouldin': round(davies_bouldin_score(X_clean, labels_clean), 3),
         'Calinski-Harabasz': round(calinski_harabasz_score(X_clean, labels_clean), 3)
     }
 
-# Обучаем модели с параметрами из лаб 1-3
-hier_labels = AgglomerativeClustering(n_clusters=4, linkage='ward').fit_predict(X_scaled)
-kmeans_labels = KMeans(n_clusters=4, random_state=42, n_init=10).fit_predict(X_scaled)
-dbscan_labels = DBSCAN(eps=0.75, min_samples=4).fit_predict(X_scaled)
+# Обучение
+hier = AgglomerativeClustering(n_clusters=n_clusters if algorithm == 'Иерархический (Ward)' else 4, linkage='ward')
+hier_labels = hier.fit_predict(X_scaled_full)
 
-# Собираем метрики в таблицу
+kmeans = KMeans(n_clusters=n_clusters if algorithm == 'K-Means' else 4, random_state=42, n_init=10)
+kmeans_labels = kmeans.fit_predict(X_scaled_km)
+
+dbscan = DBSCAN(eps=eps_val if algorithm == 'DBSCAN' else 0.75, min_samples=min_samples_val if algorithm == 'DBSCAN' else 4)
+dbscan_labels = dbscan.fit_predict(X_scaled_full)
+
+# Сбор метрик
 metrics_df = pd.DataFrame([
-    evaluate_clustering(X_scaled, hier_labels, 'Иерархический (Ward)'),
-    evaluate_clustering(X_scaled, kmeans_labels, 'K-Means'),
-    evaluate_clustering(X_scaled, dbscan_labels, 'DBSCAN')
+    evaluate_clustering(X_scaled_full, hier_labels, 'Иерархический (Ward)'),
+    evaluate_clustering(X_scaled_km, kmeans_labels, 'K-Means'),
+    evaluate_clustering(X_scaled_full, dbscan_labels, 'DBSCAN')
 ])
 
-# --- 3. Интерфейс дашборда ---
-st.set_page_config(page_title="Анализ кластеризации городов", layout="wide")
-st.title("🌍 Аналитический дашборд: Кластеризация городов")
-st.markdown("Объединение результатов лабораторных работ №1-3. Сравнение трех алгоритмов машинного обучения.")
+# Выбор активных данных
+if algorithm == 'K-Means':
+    df_plot = df_km.copy()
+    current_labels = kmeans_labels
+    current_X = X_scaled_km
+else:
+    df
+Plotly express in Python
+Plotly express in Python
+plotly.com
 
-# Боковая панель
-st.sidebar.header("⚙️ Настройки")
-algorithm = st.sidebar.selectbox(
-    "Выберите алгоритм кластеризации:",
-    ('Иерархический (Ward)', 'K-Means', 'DBSCAN')
-)
 
-# Выбор меток в зависимости от алгоритма
-labels_map = {
-    'Иерархический (Ward)': hier_labels,
-    'K-Means': kmeans_labels,
-    'DBSCAN': dbscan_labels
-}
-selected_labels = labels_map[algorithm]
+plot = df_full.copy()
+    current_labels = hier_labels if algorithm == 'Иерархический (Ward)' else dbscan_labels
+    current_X = X_scaled_full
 
-# Копируем датафрейм для фильтрации
-df_plot = df.copy()
-df_plot['Cluster'] = selected_labels
-# Делаем текстовые метки для красивой легенды в Plotly
+df_plot['Cluster'] = current_labels
 df_plot['Cluster_Label'] = df_plot['Cluster'].apply(lambda x: f"Кластер {x}" if x != -1 else "Шум (выброс)")
 
-# Фильтр по кластерам
+# Фильтр кластеров в сайдбаре
 if algorithm != 'DBSCAN':
     unique_clusters = sorted(df_plot['Cluster'].unique())
-    selected_clusters = st.sidebar.multiselect(
-        "Кластеры для отображения:",
-        unique_clusters,
-        default=unique_clusters
-    )
+    selected_clusters = st.sidebar.multiselect("Кластеры для отображения:", unique_clusters, default=unique_clusters)
     df_filtered = df_plot[df_plot['Cluster'].isin(selected_clusters)]
 else:
     df_filtered = df_plot
-    st.sidebar.info("ℹ️ Для DBSCAN черным цветом выделены объекты шума (кластер -1).")
 
-# Вкладки
-tab1, tab2, tab3, tab4 = st.tabs(["📊 3D Визуализация", "📋 Сравнение алгоритмов", "📈 Характеристики групп", "🎯 Итоговые выводы"])
+# ==========================================
+# 4. ВКЛАДКИ ДАШБОРДА
+# ==========================================
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Общие данные", 
+    "🎯 Визуализация метода", 
+    "📋 Сравнение алгоритмов", 
+    "📈 Характеристики групп", 
+    "📝 Выводы"
+])
 
-# --- Вкладка 1: 3D Визуализация ---
+# --- ВКЛАДКА 1: ДАННЫЕ ---
 with tab1:
-    st.subheader("Трехмерное распределение кластеров")
-    
-    # Создаем 3D-график
-    fig_3d = px.scatter_3d(
-        df_filtered,
-        x='Price',
-        y='Salary',
-        z='Work',
-        color='Cluster_Label',
-        hover_name=df_filtered.index,
-        labels={'Price': 'Индекс цен', 'Salary': 'Индекс зарплат', 'Work': 'Рабочие часы', 'Cluster_Label': 'Группа'},
-        color_discrete_map={'Шум (выброс)': 'black'} # Шум всегда черный
-    )
-    fig_3d.update_traces(marker=dict(size=6, opacity=0.9, line=dict(width=1, color='DarkSlateGrey')))
-    fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=0), height=700)
-    
-    st.plotly_chart(fig_3d, use_container_width=True)
-    st.caption("💡 Совет: Вы можете вращать график мышкой, приближать колесиком и наводить курсор на точки, чтобы увидеть название города.")
+    st.subheader("Общая характеристика исходных данных")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.write(f"**Количество городов:** {len(df_full)}")
+        st.write(f"**Признаки:** Рабочие часы, Индекс цен, Индекс зарплат")
+        st.dataframe(df_full.head(), use_container_width=True)
+    with col2:
+        # Ящик с усами (Boxplot) из ЛР №2
+        fig_box = px.box(df_full, y=['Work', 'Price', 'Salary'], title="Проверка на выбросы (Ящик с усами)")
+        st.plotly_chart(fig_box, use_container_width=True)
 
-# --- Вкладка 2: Сравнение алгоритмов ---
+# --- ВКЛАДКА 2: ВИЗУАЛИЗАЦИЯ (Дендрограмма, Центроиды, k-расстояния) ---
 with tab2:
-    st.subheader("Сравнительная таблица метрик качества")
+    st.subheader(f"Результаты: {algorithm}")
+    
+    # 1. Дендрограмма (ЛР №1)
+    if algorithm == 'Иерархический (Ward)':
+        st.markdown("#### Дендрограмма (Метод Уорда)")
+        fig_dendro, ax = plt.subplots(figsize=(12, 4))
+        sch.dendrogram(sch.linkage(X_scaled_full, method='ward'), labels=df_full.index.tolist(), leaf_rotation=90, ax=ax)
+        ax.set_ylabel("Расстояние")
+        ax.axhline(y=5, color='r', linestyle='--', label='Линия разреза (K=4)')
+        ax.legend()
+        st.pyplot(fig_dendro)
+
+    # 2. Центроиды (ЛР №2)
+    elif algorithm == 'K-Means':
+        st.markdown("#### Кластеры K-Means с центроидами (Тель-Авив исключен)")
+        fig_km = px.scatter(df_plot, x='Price', y='Salary', color='Cluster_Label', hover_name=df_plot.index, labels={'Price': 'Индекс цен', 'Salary': 'Индекс зарплат'})
+        # Добавляем центроиды
+        centroids_orig = scaler_km.inverse_transform(kmeans.cluster_centers_)
+        for i, c in enumerate(centroids_orig):
+            fig_km.add_trace(go.Scatter(x=[c[1]], y=[c[2]], mode='markers', marker=dict(symbol='x', size=15, color='black', linewidth=2), name=f'Центр {i}'))
+        st.plotly_chart(fig_km, use_container_width=True)
+
+    # 3. График k-расстояний (ЛР №3)
+    elif algorithm == 'DBSCAN':
+        st.markdown("#### График k-расстояний (для выбора eps)")
+        neighbors = NearestNeighbors(n_neighbors=min_samples_val)
+        distances, _ = neighbors.fit(X_scaled_full).kneighbors(X_scaled_full)
+        distances = np.sort(distances[:, min_samples_val-1], axis=0)
+        fig_k_dist = px.line(y=distances, title="k-расстояния", labels={'y': 'Расстояние', 'index': 'Точки'})
+        fig_k_dist.add_hline(y=eps_val, line_dash="dash", line_color="red", annotation_text=f"Выбранный eps={eps_val}")
+        st.plotly_chart(fig_k_dist, use_container_width=True)
+
+    # 4. Общий 3D-график (Твой оригинальный)
+    st.markdown("#### Пространство признаков (3D)")
+    fig_3d = px.scatter_3d(df_filtered, x='Price', y='Salary', z='Work', color='Cluster_Label', hover_name=df_filtered.index, 
+                           labels={'Price': 'Индекс цен', 'Salary': 'Индекс зарплат', 'Work': 'Рабочие часы'}, 
+                           color_discrete_map={'Шум (выброс)': 'black'})
+    fig_3d.update_traces(marker=dict(size=6, opacity=0.9, line=dict(width=1, color='DarkSlateGrey')))
+    fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=0), height=600)
+    st.plotly_chart(fig_3d, use_container_width=True)
+
+# --- ВКЛАДКА 3: СРАВНЕНИЕ ---
+with tab3:
+    s
+
+
+t.subheader("Сравнительная таблица метрик")
     st.markdown("""
-    *   **Silhouette Score (Коэффициент силуэта):** от -1 до 1. Чем ближе к 1, тем лучше объекты разделены.
-    *   **Davies-Bouldin Index:** Чем **ниже** значение, тем лучше (расстояние между кластерами больше, а внутри меньше).
-    *   **Calinski-Harabasz Index:** Чем **выше**, тем лучше (плотные, хорошо разделенные кластеры).
+    *   **Silhouette Score:** от -1 до 1. Чем ближе к 1, тем лучше объекты разделены.
+    *   **Davies-Bouldin Index:** Чем **ниже** значение, тем лучше.
+    *   **Calinski-Harabasz Index:** Чем **выше**, тем лучше (плотные кластеры).
     """)
     st.dataframe(metrics_df, use_container_width=True, hide_index=True)
 
-# --- Вкладка 3: Характеристики групп ---
-with tab3:
-    st.subheader(f"Средние экономические показатели: {algorithm}")
-    
-    # Исключаем шум для средних значений
-    df_mean = df_plot[df_plot['Cluster'] != -1] if algorithm == 'DBSCAN' else df_plot
-    cluster_means = df_mean.groupby('Cluster')[['Work', 'Price', 'Salary']].mean().round(1)
-    
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.dataframe(cluster_means, use_container_width=True)
-    with col2:
-        st.bar_chart(cluster_means)
-
-# --- Вкладка 4: Выводы ---
+# --- ВКЛАДКА 4: ХАРАКТЕРИСТИКИ ГРУПП (С выбором конкретного кластера) ---
 with tab4:
+    st.subheader(f"Анализ групп: {algorithm}")
+    
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.markdown("**Средние значения по всем кластерам:**")
+        df_mean = df_plot[df_plot['Cluster'] != -1]
+        cluster_means = df_mean.groupby('Cluster')[['Work', 'Price', 'Salary']].mean().round(1)
+        st.dataframe(cluster_means, use_container_width=True)
+        
+    with col2:
+        st.markdown("**Детальное изучение кластера:**")
+        # Требование ЛР 4: выбор отдельных кластеров для детального изучения
+        cluster_to_study = st.selectbox("Выберите кластер:", sorted([c for c in df_plot['Cluster'].unique() if c != -1]))
+        st.write(f"Города в кластере {cluster_to_study}:")
+        st.dataframe(df_plot[df_plot['Cluster'] == cluster_to_study][['Work', 'Price', 'Salary']], use_container_width=True)
+
+# --- ВКЛАДКА 5: ВЫВОДЫ ---
+with tab5:
     st.subheader("Обоснование выбора алгоритма")
     st.markdown("""
-    В ходе исследования были применены три алгоритма кластеризации. На основе метрик и визуального анализа можно сделать следующие выводы:
+    В ходе исследования были применены три алгоритма кластеризации. 
+    1. **Иерархический анализ (Ward)** отлично справляется с поиском структуры данных, однако чувствителен к выбросам.
+    2. **K-Means** показал высокую скорость, но потребовал удаления аномалии (Тель-Авив), так как метод чувствителен к выбросам.
+    3. **DBSCAN** оказался наиболее устойчивым к аномалиям, автоматически выделив города-одиночки в "шум".
     
-    1. **Иерархический анализ (Ward)** отлично справляется с поиском структуры данных и не требует заданного K, однако он чувствителен к выбросам и строит кластеры сферической формы.
-    2. **K-Means** показал высокую скорость работы и дал хорошие результаты (4 экономические группы), но потребовал ручного удаления аномалии (Тель-Авив), так как метод чувствителен к выбросам, которые "перетягивают" центроиды.
-    3. **DBSCAN** оказался наиболее устойчивым к аномалиям. Он автоматически выделил города-одиночки (Цюрих, Женева, Гонконг) в "шум", не искажая границы основных плотных кластеров.
-    
-    **Итог:** Для поиска закономерностей в экономике лучше всего подходит **K-Means** (при условии очистки выбросов), так как он дает четкие, интерпретируемые центры. Однако для поиска аномалий (городов с уникальной экономикой) безусловным лидером является **DBSCAN**.
-    """)
+    **Итог:** Для поиска закономерностей лучше подходит **K-Means** (с очисткой выбросов), для поиска аномалий — **DBSCAN**._
