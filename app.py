@@ -100,13 +100,7 @@ if algorithm == 'K-Means':
     current_labels = kmeans_labels
     current_X = X_scaled_km
 else:
-    df
-Plotly express in Python
-Plotly express in Python
-plotly.com
-
-
-plot = df_full.copy()
+    df_plot = df_full.copy()
     current_labels = hier_labels if algorithm == 'Иерархический (Ward)' else dbscan_labels
     current_X = X_scaled_full
 
@@ -190,10 +184,7 @@ with tab2:
 
 # --- ВКЛАДКА 3: СРАВНЕНИЕ ---
 with tab3:
-    s
-
-
-t.subheader("Сравнительная таблица метрик")
+    st.subheader("Сравнительная таблица метрик")
     st.markdown("""
     *   **Silhouette Score:** от -1 до 1. Чем ближе к 1, тем лучше объекты разделены.
     *   **Davies-Bouldin Index:** Чем **ниже** значение, тем лучше.
